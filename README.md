@@ -24,8 +24,6 @@ If you need weights you can actually trust to be unmodified, the safer options a
 
 Per that repo's model card: all linear layers are quantized to NVFP4 (W4A4, group size 16), bringing the download from ~70.3 GB (BF16) down to ~21.9 GB.
 
-**Verified working on this box (2026-07-09)** — see "Box-specific findings" below. Unlike the NVFP4 Qwen3.6 sibling (which needed a patched SGLang nightly for NVIDIA's ModelOpt mixed-precision format), this checkpoint uses the **compressed-tensors** NVFP4 format, which the stock SGLang v0.5.14 release loads natively — no patches needed.
-
 ## Configuration
 
 ### Tunable via `.env`
@@ -55,19 +53,6 @@ These define what this image *is*, not how it's tuned. Changing them means you'r
 | `REASONING_PARSER` | `qwen3` | Needed so SGLang understands this model's "thinking" output format |
 | `TOOL_CALL_PARSER` | `qwen3_coder` | Needed so SGLang understands this model's function-calling output format |
 
-## Box-specific findings (2026-07-09)
-
-`.env` in this repo is set to `CONTEXT_LEN=131072` (128K) and `MEM_FRACTION=0.5` because this container sits alongside another ~30-35B-class model on this GPU (the same 50/50 split used by the Qwen3.6 sibling images), rather than claiming the whole card. It replaced `qwen-qwen3.6-35b-a3b-fp8-sglang`, which was stopped before this was started — don't run all three 35B-class containers at once at 0.5 memory fraction each.
-
-Verified at these settings:
-
-- Weights load in ~71 s (21.96 GB on GPU, quant detected as `compressed-tensors`), decode CUDA graphs capture cleanly, and the `qwen3` parser correctly separates reasoning from answers.
-- SGLang's computed KV cache pool is **512,414 tokens** — enough for nearly 4 concurrent full-128K requests, with `MAX_RUNNING_REQUESTS` staying at 4 and 38.4 GB of GPU memory still free after startup. (The Qwen FP8 image only managed a 102K pool at the same settings; NVFP4's smaller weights make the difference.)
-- Single-request decode: **~59 tokens/sec** on an otherwise idle GPU, on par with the Qwen3.6 siblings. The default kernels (triton attention, auto MoE runner) are as fast as any alternative tested — `flashinfer` attention and `marlin`/`flashinfer_cutlass` MoE runners all measured identical.
-- **MTP speculative decoding is impossible with this checkpoint**: the config declares an MTP layer (`mtp_num_hidden_layers=1`) but the quantizer dropped its weights — the safetensors contain zero MTP tensors. A speed uplift from speculative decoding would require a different checkpoint (some community uploads advertise "-MTP" variants).
-- The model thinks at length before answering, as its card warns: a trivial "say hello in five words" burned 731 reasoning tokens before the answer. Give requests `max_tokens` in the thousands (the card suggests ≥ 6,500 for one-shot coding tasks) or the reply gets cut off mid-think with empty content.
-- Not yet tested: concurrent-load throughput, and quality of this quant vs the official BF16 weights.
-
 ## Requirements
 
 - NVIDIA GB10 / DGX Spark (SM_121a)
@@ -87,22 +72,6 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 
 The server starts on port **30000** (inside `llm-net`, not published to the host) and exposes an OpenAI-compatible API once the health check passes — allow significant time for the first run while the ~22 GB of weights download.
 
-## LiteLLM router
-
-Registered in the shared LiteLLM proxy (`/home/shared/Documents/litellm/config.yaml`) as `sakamakismile-ornith-1.0-35b-nvfp4-sglang` (max_input_tokens 131072, matching the deployed `CONTEXT_LEN`), and in OpenCode (`/home/shared/.config-opencode/opencode.jsonc`) under the same name. Restart the router after config changes:
-
-```bash
-docker restart litellm
-```
-
-## Replacing the Qwen3.6 FP8 container
-
-This image took over the GPU slot previously held by `qwen-qwen3.6-35b-a3b-fp8-sglang`, which was stopped (2026-07-09) before this container was started. The stopped container has **not** been removed, and its entries in `~/.docker-tags` and the LiteLLM config are still in place — finish or revert the swap deliberately rather than assuming it's complete.
-
-## Publishing
-
-Pushing a `v*.*.*` tag to GitHub builds the linux/arm64 image and publishes it to Docker Hub as `picopapaya/sakamakismile-ornith-1.0-35b-nvfp4-sglang` (see `.github/workflows/docker-publish.yml`; requires `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` repo secrets).
-
 ## License
 
-This project's own files: MIT. Model weights are subject to their respective upstream licenses (`deepreinforce-ai/Ornith-1.0-35B` is MIT-licensed; verify the license terms on the third-party `sakamakismile/Ornith-1.0-35B-NVFP4` repo before production use).
+MIT
