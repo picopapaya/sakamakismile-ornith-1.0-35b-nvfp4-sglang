@@ -1,0 +1,6 @@
+services:
+  sakamakismile-ornith-1.0-35b-nvfp4-sglang:
+    build:
+      context: .
+      platforms:
+        - linux/arm64

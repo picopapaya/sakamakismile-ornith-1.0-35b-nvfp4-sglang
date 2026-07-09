@@ -1,0 +1,38 @@
+# Ornith-1.0-35B-MoE (community NVFP4 requant) on GB10 / DGX Spark via SGLang.
+#   docker compose up          (HF_TOKEN optional — model is not gated)
+services:
+  sakamakismile-ornith-1.0-35b-nvfp4-sglang:
+    image: picopapaya/sakamakismile-ornith-1.0-35b-nvfp4-sglang:latest
+    container_name: sakamakismile-ornith-1.0-35b-nvfp4-sglang
+    restart: unless-stopped
+    ipc: host               # SGLang needs a large shared-memory segment.
+    shm_size: "32gb"
+    environment:
+      HF_TOKEN: "${HF_TOKEN:-}"   # optional — avoids anonymous download rate limits
+      MODEL_ID: "sakamakismile/Ornith-1.0-35B-NVFP4"
+      QUANTIZATION: "auto"   # let SGLang read the quant scheme from the checkpoint
+      KV_CACHE_DTYPE: "auto"
+      CONTEXT_LEN: "${CONTEXT_LEN:-262144}"
+      MEM_FRACTION: "${MEM_FRACTION:-0.85}"
+      MAX_RUNNING_REQUESTS: "4"
+      ATTENTION_BACKEND: "${ATTENTION_BACKEND:-triton}"
+      EXTRA_ARGS: "${EXTRA_ARGS:-}"   # passed straight through to sglang.launch_server
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+    networks:
+      - llm-net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  hf-cache:
+
+networks:
+  llm-net:
+    external: true
+    name: llm-net
